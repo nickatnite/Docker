@@ -1,0 +1,23 @@
+FROM registry.xxxxxxxxxx.net/xxxxxxxxxx_mongo_base
+
+WORKDIR /data
+
+COPY boto_credentials /root/.boto
+
+#Clone the database
+RUN mkdir -p ./tmp; aws s3 cp s3://qa.db.archive/$(date -d yesterday '+%m%d%Y').xxxxxxxxxx.qa.tar.gz -| tar -C ./tmp -zxvf -
+RUN mkdir -p ./db; \
+             mongod --dbpath=./db --fork --logpath /dev/stdout;\
+             mongorestore --host localhost --port 27017 --drop --db xxxxxxxxxx ./tmp/xxxxxxxxxx;\
+	     mongo admin --eval "db.getSiblingDB('xxxxxxxxxx').createUser({user : 'nextline_api', pwd : 'theraflu', roles : [{role: 'readWrite', db: 'xxxxxxxxxx'}]});" ; \
+             rm -rf ./tmp; \
+	     mongod --shutdown
+
+RUN rm -f /root/.boto # Make sure to build with --squash so the credentials aren't leaked!
+
+# "Start mongod"
+ENTRYPOINT ["mongod"]
+CMD ["--dbpath=./db", "--noauth", "--verbose", "--nojournal"]
+
+# Expose port
+EXPOSE 27017

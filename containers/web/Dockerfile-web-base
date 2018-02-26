@@ -1,0 +1,148 @@
+### GO LIVE CONTAINER WILL NOT REFERENCE THIS.
+FROM ubuntu:16.04 
+
+LABEL com.xxxxxxxxxx.web.version="0.0.1"
+LABEL vendor="xxxxxxxxxx Inc"
+LABEL author="xxxxxxxxxx Web Team"
+
+#########################################
+#   CONFIGURE THE BASE IMAGE            #
+#########################################
+
+WORKDIR /
+# delete all the apt list files since they're big and get stale quickly
+# this forces "apt-get update" in dependent images, which is also good
+RUN rm -rf /var/lib/apt/lists/*
+
+# delete all the apt list files since they're big and get stale quickly
+RUN rm -rf /var/lib/apt/lists/*
+# this forces "apt-get update" in dependent images, which is also good
+
+# enable the universe
+RUN sed -i 's/^#\s*\(deb.*universe\)$/\1/g' /etc/apt/sources.list
+RUN apt-get update 
+RUN apt-get upgrade -y
+RUN apt-get install libcurl4-openssl-dev -y 
+RUN apt-get install libssl-dev -y 
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && apt-get install -y \
+apt-utils \
+python-pip \
+cron
+
+##########################################
+## INSTALL REQUIRED PACKAGES WITH APT-GET#              
+##########################################
+
+## ALPHABETIZE PACKAGES FOR READABILITY AND RUN apt-get update
+## IN ORDER TO BUST DOCKER CACHE 
+
+RUN apt-get update && apt-get install -y \
+apache2                 \
+apache2-bin             \
+apache2-data            \
+apache2-utils           \
+build-essential         \
+curl                    \
+g++                     \
+gcc                     \
+git                     \
+language-pack-en-base   \
+libapache2-mod-wsgi     \
+libcairo2-dev           \
+libexpat1               \
+libffi-dev              \
+libffi-dev              \
+libssl-dev              \
+libx11-dev              \
+libxml2-dev             \
+libxslt1-dev            \
+nano                    \
+openssl                 \
+pango1.0-tests          \
+psmisc                  \
+python-pip              \
+python-dev              \
+python-setuptools       \
+ssl-cert                \
+vim                     \
+zlib1g zlib1g-dev 
+
+#############################################
+#              INSTALL NODE JS              #
+#############################################
+
+RUN groupadd --gid 1000 node \
+  && useradd --uid 1000 --gid node --shell /bin/bash --create-home node
+
+# gpg keys listed at https://github.com/nodejs/node#release-team
+RUN set -ex \
+  && for key in \
+    9554F04D7259F04124DE6B476D5A82AC7E37093B \
+    94AE36675C464D64BAFA68DD7434390BDBE9B9C5 \
+    FD3A5288F042B6850C66B31F09FE44734EB7990E \
+    71DCFD284A79C3B38668286BC97EC7A07EDE3FC1 \
+    DD8F2338BAE7501E3DD5AC78C273792F7D83545D \
+    B9AE9905FFD7803F25714661B63B535A4C206CA9 \
+    C4F0DFFF4E8C1A8236409D08E73BC641CC11F4C8 \
+    56730D5401028683275BD23C23EFEFE93C4CFFFE \
+  ; do \
+    gpg --keyserver pgp.mit.edu --recv-keys "$key" || \
+    gpg --keyserver keyserver.pgp.com --recv-keys "$key" || \
+    gpg --keyserver ha.pool.sks-keyservers.net --recv-keys "$key" ; \
+  done
+
+ENV NPM_CONFIG_LOGLEVEL info
+ENV NODE_VERSION 6.11.2
+
+RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
+  && case "${dpkgArch##*-}" in \
+    amd64) ARCH='x64';; \
+    ppc64el) ARCH='ppc64le';; \
+    *) echo "unsupported architecture"; exit 1 ;; \
+  esac \
+  && curl -SLO "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH.tar.xz" \
+  && curl -SLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc" \
+  && gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc \
+  && grep " node-v$NODE_VERSION-linux-$ARCH.tar.xz\$" SHASUMS256.txt | sha256sum -c - \
+  && tar -xJf "node-v$NODE_VERSION-linux-$ARCH.tar.xz" -C /usr/local --strip-components=1 \
+  && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
+  && ln -s /usr/local/bin/node /usr/local/bin/nodejs
+
+ENV YARN_VERSION 0.27.5
+
+RUN set -ex \
+  && for key in \
+    6A010C5166006599AA17F08146C2130DFD2497F5 \
+  ; do \
+    gpg --keyserver pgp.mit.edu --recv-keys "$key" || \
+    gpg --keyserver keyserver.pgp.com --recv-keys "$key" || \
+    gpg --keyserver ha.pool.sks-keyservers.net --recv-keys "$key" ; \
+  done \
+  && curl -fSLO --compressed "https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz" \
+  && curl -fSLO --compressed "https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz.asc" \
+  && gpg --batch --verify yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz \
+  && mkdir -p /opt/yarn \
+  && tar -xzf yarn-v$YARN_VERSION.tar.gz -C /opt/yarn --strip-components=1 \
+  && ln -s /opt/yarn/bin/yarn /usr/local/bin/yarn \
+  && ln -s /opt/yarn/bin/yarn /usr/local/bin/yarnpkg \
+  && rm yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz
+
+RUN pip install -U pip setuptools 
+RUN pip install -U awscli
+RUN pip install --upgrade pip
+RUN pip install -U pytest 
+RUN pip install -U pycurl 
+
+WORKDIR /
+COPY erp_reqs.txt .
+RUN pip install -r ./erp_reqs.txt
+COPY api_reqs.txt .
+RUN pip install -r ./api_reqs.txt
+COPY geod_reqs.txt .
+RUN pip install -r ./geod_reqs.txt
+COPY eve-mongoengine eve-mongoengine
+RUN easy_install -Z ./eve-mongoengine
+RUN rm *_reqs.txt
+RUN pip install newrelic

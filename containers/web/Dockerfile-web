@@ -1,0 +1,71 @@
+FROM xxxxxxxxxx/xom-qa-web:web-base
+# COPY SOURE CODE  TO CONTAINER
+COPY var/www/web /var/www/web
+# MAKE SURE ERP DEPENDENCIES ARE UP TO DATE
+WORKDIR /var/www/web/xxxxxxxxxx_erp
+RUN pip install -r requirements.txt
+# MAKE SURE GEOD DEPENDENCIES ARE UP TO DATE
+WORKDIR /var/www/web/xxxxxxxxxx_api
+RUN pip install -r requirements.txt
+# MAKE SURE API DEPENDENCIES ARE UP TO DATE
+WORKDIR /var/www/web/xxxxxxxxxx_geod
+RUN pip install -r requirements.txt
+# MAKE SURE PRICING DEPENDENCIES ARE UP TO DATE
+WORKDIR /var/www/web/xxxxxxxxxx_pricing
+RUN pip install -r requirements.txt
+# INSTALL WEBAPP DEPENDENCIES
+WORKDIR /var/www/web/xxxxxxxxxx_webapp/
+RUN npm cache clean -f
+RUN yarn
+RUN yarn gulp-production
+# CONFIGURE ERP_FRONT_END
+WORKDIR /var/www/web/xxxxxxxxxx_erp_frontend/
+RUN yarn
+ARG BUILD_ENV=qa4
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
+RUN if [ "$BUILD_ENV" == 'qaa' ]; then yarn build-qaa; \
+  elif [ "$BUILD_ENV" == 'qab' ]; then yarn build-qab; \
+  elif [ "$BUILD_ENV" == 'stage' ]; then yarn build-stage; \
+  elif [ "$BUILD_ENV" == 'prod' ]; then yarn build-prod; fi
+# INSTALL xxxxxxxxxx_MODELS WHEEL PACKAGE
+WORKDIR /
+COPY xxxxxxxxxx_models-1.3.4-py2-none-any.whl /xxxxxxxxxx_models-1.3.4-py2-none-any.whl
+RUN  pip install -U xxxxxxxxxx_models-1.3.4-py2-none-any.whl
+# BUILD API/PRICING/MODELS
+RUN easy_install -Z /var/www/web/xxxxxxxxxx_api
+RUN easy_install -Z /var/www/web/xxxxxxxxxx_pricing
+
+###########################################
+#     CONFIGURE   APACHE                  #
+###########################################
+
+WORKDIR /
+## COPY APACHE SETUP FROM STEP 2 Shell Script.
+COPY ssl-ready/ /etc/ssl
+COPY apache2-ready/ /etc/apache2
+
+ENV LANG=C
+ENV APACHE_LOCK_DIR         /var/lock/apache2
+ENV APACHE_RUN_DIR          /var/run/apache2
+ENV APACHE_PID_FILE         ${APACHE_RUN_DIR}/apache2.pid
+ENV APACHE_LOG_DIR          /var/log/apache2
+ENV APACHE_RUN_USER         www-data
+ENV APACHE_RUN_GROUP        www-data
+ENV APACHE_MAX_REQUEST_WORKERS 64
+ENV APACHE_MAX_CONNECTIONS_PER_CHILD 1024
+ENV APACHE_ALLOW_OVERRIDE   None
+ENV APACHE_ALLOW_ENCODED_SLASHES Off
+ENV NEWRELIC_LICENSE_KEY    ""
+ENV NEWRELIC_APPNAME        ""
+COPY ssl-ready/ /etc/ssl
+COPY apache2-ready/ /etc/apache2
+RUN echo "ServerName XOMZOM" >> /etc/apache2/apache2.conf
+RUN chown -R www-data:www-data /var/www/web/*.wsgi
+
+### SETUP CONTAINER ENTRY POINT AND PORTS ######
+COPY docker-entrypoint.sh /
+EXPOSE 80
+EXPOSE 443
+RUN ["chmod", "+x", "/docker-entrypoint.sh"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["apache2"]
